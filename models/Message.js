@@ -1,11 +1,5 @@
 const mongoose = require("mongoose");
 
-// Replaces chatapp.sql messages table:
-// msg_id          → _id (MongoDB auto)
-// incoming_msg_id → receiverId (ref to User)
-// outgoing_msg_id → senderId (ref to User)
-// msg             → message
-
 const messageSchema = new mongoose.Schema(
   {
     senderId: {
@@ -23,8 +17,14 @@ const messageSchema = new mongoose.Schema(
       required: true,
       maxlength: 1000,
     },
+    // Delivered = saved to DB, Seen = receiver opened the chat
+    status: {
+      type: String,
+      enum: ["delivered", "seen"],
+      default: "delivered",
+    },
   },
-  { timestamps: true }
+  { timestamps: true } // createdAt used for sorting users by recent message
 );
 
 module.exports = mongoose.model("Message", messageSchema);

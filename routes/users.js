@@ -4,28 +4,13 @@ const User = require("../models/User");
 const Message = require("../models/Message");
 const { protect } = require("../middleware/auth");
 
-// ─────────────────────────────────────────────
-// GET /api/users
-// Replaces: php/users.php + data.php
-// Changes:  SQL → Mongoose | HTML output → JSON | includes last message preview
-// Original SQL:
-//   SELECT * FROM users WHERE NOT unique_id = $outgoing_id ORDER BY user_id DESC
-// ─────────────────────────────────────────────
+// GET /api/users — get all users sorted by most recent message (messenger style)
 router.get("/", protect, async (req, res) => {
   try {
     const myId = req.user._id;
 
-    // Replaces: SELECT * FROM users WHERE NOT unique_id = $outgoing_id
-    const users = await User.find({ _id: { $ne: myId } })
-      .select("-password")
-      .sort({ createdAt: -1 }); // ORDER BY user_id DESC
+    const users = await User.find({ _id: { $ne: myId } }).select("-password");
 
-    // Replaces: data.php — gets last message for each user
-    // Original SQL:
-    //   SELECT * FROM messages WHERE
-    //   (incoming_msg_id = $row['unique_id'] OR outgoing_msg_id = $row['unique_id'])
-    //   AND (outgoing_msg_id = $outgoing_id OR incoming_msg_id = $outgoing_id)
-    //   ORDER BY msg_id DESC LIMIT 1
     const usersWithLastMsg = await Promise.all(
       users.map(async (user) => {
         const lastMessage = await Message.findOne({
@@ -33,19 +18,19 @@ router.get("/", protect, async (req, res) => {
             { senderId: myId, receiverId: user._id },
             { senderId: user._id, receiverId: myId },
           ],
-        }).sort({ createdAt: -1 });
+        }).sort({ createdAt: -1 }); // most recent first
 
-        // Replaces: (strlen($result) > 28) ? substr($result, 0, 28).'...' : $msg = $result
         let msgPreview = "No message available";
         let isMine = false;
+        let lastMessageTime = null;
 
         if (lastMessage) {
           msgPreview =
             lastMessage.message.length > 28
               ? lastMessage.message.substring(0, 28) + "..."
               : lastMessage.message;
-          // Replaces: ($outgoing_id == $row2['outgoing_msg_id']) ? $you = "You: " : $you = ""
           isMine = lastMessage.senderId.toString() === myId.toString();
+          lastMessageTime = lastMessage.createdAt;
         }
 
         return {
@@ -56,9 +41,18 @@ router.get("/", protect, async (req, res) => {
           status: user.status,
           lastMessage: msgPreview,
           lastMessageIsYours: isMine,
+          lastMessageTime, // used for sorting
         };
       })
     );
+
+    // Sort: users with messages first (newest at top), then users with no messages
+    usersWithLastMsg.sort((a, b) => {
+      if (!a.lastMessageTime && !b.lastMessageTime) return 0;
+      if (!a.lastMessageTime) return 1;  // no message → push to bottom
+      if (!b.lastMessageTime) return -1; // no message → push to bottom
+      return new Date(b.lastMessageTime) - new Date(a.lastMessageTime); // newest first
+    });
 
     res.json(usersWithLastMsg);
   } catch (error) {
@@ -67,25 +61,15 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
 // GET /api/users/search?q=term
-// Replaces: php/search.php
-// Changes:  SQL LIKE → MongoDB $regex | returns JSON not HTML
-// Original SQL:
-//   SELECT * FROM users WHERE NOT unique_id = $outgoing_id
-//   AND (fname LIKE '%$searchTerm%' OR lname LIKE '%$searchTerm%')
-// ─────────────────────────────────────────────
 router.get("/search", protect, async (req, res) => {
   try {
     const { q } = req.query;
     const myId = req.user._id;
 
-    if (!q || q.trim() === "") {
-      return res.json([]);
-    }
+    if (!q || q.trim() === "") return res.json([]);
 
-    // Replaces: fname LIKE '%$searchTerm%' OR lname LIKE '%$searchTerm%'
-    const regex = new RegExp(q.trim(), "i"); // case-insensitive
+    const regex = new RegExp(q.trim(), "i");
     const users = await User.find({
       _id: { $ne: myId },
       $or: [{ firstName: regex }, { lastName: regex }],
@@ -102,7 +86,7 @@ router.get("/search", protect, async (req, res) => {
   }
 });
 
-// GET /api/users/:id — get a single user by ID (used in chat.php header)
+// GET /api/users/:id
 router.get("/:id", protect, async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select("-password");
