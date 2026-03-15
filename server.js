@@ -6,9 +6,9 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 const Message = require("./models/Message");
 
-const authRoutes = require("./routes/auth");
-const chatRoutes = require("./routes/chat");
-const userRoutes = require("./routes/users");
+const authRoutes  = require("./routes/auth");
+const chatRoutes  = require("./routes/chat");
+const userRoutes  = require("./routes/users");
 const adminRoutes = require("./routes/admin");
 
 connectDB();
@@ -28,17 +28,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => { req.io = io; next(); });
 
-app.use("/api/auth", authRoutes);
-app.use("/api/chat", chatRoutes);
+app.use("/api/auth",  authRoutes);
+app.use("/api/chat",  chatRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => res.send("ChatMeHere API is running"));
 
+// Track online users: userId → socketId
 const onlineUsers = new Map();
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
+  // ── Online status ────────────────────────────────────────────────────
   socket.on("user_online", (userId) => {
     onlineUsers.set(userId, socket.id);
     io.emit("online_users", Array.from(onlineUsers.keys()));
@@ -48,34 +50,23 @@ io.on("connection", (socket) => {
     socket.join(roomId);
   });
 
-  //added new socket
-    socket.on("reaction_update", (data) => {
-    socket.to(data.roomId).emit("reaction_updated", data.message);
-  });
-
-  // Send message to room — receiver gets it, sender already added it optimistically
+  // ── Chat messaging ───────────────────────────────────────────────────
   socket.on("send_message", (data) => {
-    // Emit to everyone in the room EXCEPT the sender
     socket.to(data.roomId).emit("receive_message", data.message);
   });
 
-  // Mark messages as seen — when receiver opens the chat
   socket.on("mark_seen", async ({ roomId, userId }) => {
     try {
-      // Update all delivered messages in this room that were sent TO this user
       await Message.updateMany(
-        {
-          status: "delivered",
-          receiverId: userId,
-        },
+        { status: "delivered", receiverId: userId },
         { status: "seen" }
       );
-
-      // Notify the sender that their messages have been seen
       io.to(roomId).emit("messages_seen", { by: userId });
-    } catch (err) {
-      console.error("mark_seen error:", err);
-    }
+    } catch (err) { console.error("mark_seen error:", err); }
+  });
+
+  socket.on("reaction_update", (data) => {
+    socket.to(data.roomId).emit("reaction_updated", data.message);
   });
 
   socket.on("typing", (data) => {
@@ -86,10 +77,74 @@ io.on("connection", (socket) => {
     socket.to(data.roomId).emit("user_stop_typing", data.userId);
   });
 
+  // ── WebRTC Video/Voice Call Signaling ────────────────────────────────
+  // These events just relay signals between two users.
+  // The actual video/audio goes directly peer-to-peer (not through server).
+
+  // Step 1: Caller initiates a call to a specific user
+  socket.on("call_offer", ({ to, offer, callType, callerInfo }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      // Tell the receiver someone is calling them
+      io.to(targetSocketId).emit("incoming_call", {
+        from: callerInfo,       // caller's user info { _id, firstName, lastName, avatar }
+        offer,                  // WebRTC offer
+        callType,               // "video" or "audio"
+      });
+    } else {
+      // Target user is offline — notify caller
+      socket.emit("call_unavailable", { message: "User is not available" });
+    }
+  });
+
+  // Step 2: Receiver accepts and sends back an answer
+  socket.on("call_answer", ({ to, answer }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call_answered", { answer });
+    }
+  });
+
+  // Step 3: Either user sends ICE candidates to establish best connection
+  socket.on("ice_candidate", ({ to, candidate }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("ice_candidate", { candidate });
+    }
+  });
+
+  // Step 4a: Receiver declines the call
+  socket.on("call_rejected", ({ to }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call_rejected");
+    }
+  });
+
+  // Step 4b: Either user ends the call
+  socket.on("call_ended", ({ to }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call_ended");
+    }
+  });
+
+  // Step 4c: Call not answered (timeout)
+  socket.on("call_missed", ({ to }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call_missed");
+    }
+  });
+
+  // ── Disconnect ───────────────────────────────────────────────────────
   socket.on("disconnect", () => {
+    // If user was in a call, notify the other person
     onlineUsers.forEach((socketId, userId) => {
       if (socketId === socket.id) {
         onlineUsers.delete(userId);
+        // Notify everyone this user went offline (could end ongoing call)
+        io.emit("user_offline", userId);
       }
     });
     io.emit("online_users", Array.from(onlineUsers.keys()));
