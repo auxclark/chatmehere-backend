@@ -48,6 +48,11 @@ io.on("connection", (socket) => {
     socket.join(roomId);
   });
 
+  //added new socket
+    socket.on("reaction_update", (data) => {
+    socket.to(data.roomId).emit("reaction_updated", data.message);
+  });
+
   // Send message to room — receiver gets it, sender already added it optimistically
   socket.on("send_message", (data) => {
     // Emit to everyone in the room EXCEPT the sender

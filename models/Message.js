@@ -14,17 +14,35 @@ const messageSchema = new mongoose.Schema(
     },
     message: {
       type: String,
-      required: true,
+      default: "",
       maxlength: 1000,
     },
-    // Delivered = saved to DB, Seen = receiver opened the chat
+    // File/image attachment
+    fileUrl:  { type: String, default: null },
+    fileType: { type: String, default: null },
+    fileName: { type: String, default: null },
+
+    // Reply to another message
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
+
+    // Emoji reactions: { userId: emoji }
+    reactions: {
+      type: Map,
+      of: String,
+      default: {},
+    },
+
     status: {
       type: String,
       enum: ["delivered", "seen"],
       default: "delivered",
     },
   },
-  { timestamps: true } // createdAt used for sorting users by recent message
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("Message", messageSchema);
