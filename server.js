@@ -10,6 +10,7 @@ const authRoutes  = require("./routes/auth");
 const chatRoutes  = require("./routes/chat");
 const userRoutes  = require("./routes/users");
 const adminRoutes = require("./routes/admin");
+const postRoutes  = require("./routes/posts");
 
 connectDB();
 
@@ -32,6 +33,7 @@ app.use("/api/auth",  authRoutes);
 app.use("/api/chat",  chatRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/posts", postRoutes);
 app.get("/", (req, res) => res.send("ChatMeHere API is running"));
 
 // Track online users: userId → socketId
