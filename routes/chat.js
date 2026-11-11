@@ -130,4 +130,54 @@ router.put("/react/:messageId", protect, async (req, res) => {
   }
 });
 
+// PUT /api/chat/edit/:messageId — edit a text message
+router.put("/edit/:messageId", protect, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || message.trim() === "") {
+      return res.status(400).json({ message: "Message cannot be empty" });
+    }
+
+    const msg = await Message.findById(req.params.messageId);
+    if (!msg) return res.status(404).json({ message: "Message not found" });
+
+    if (msg.senderId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You can only edit your own messages" });
+    }
+
+    msg.message = message.trim();
+    await msg.save();
+
+    const populated = await Message.findById(msg._id)
+      .populate("senderId", "firstName lastName avatar")
+      .populate({
+        path: "replyTo",
+        populate: { path: "senderId", select: "firstName lastName avatar" },
+      });
+
+    res.json(populated);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to edit message" });
+  }
+});
+
+// DELETE /api/chat/:messageId — delete a message
+router.delete("/:messageId", protect, async (req, res) => {
+  try {
+    const msg = await Message.findById(req.params.messageId);
+    if (!msg) return res.status(404).json({ message: "Message not found" });
+
+    if (msg.senderId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You can only delete your own messages" });
+    }
+
+    await msg.deleteOne();
+    res.json({ message: "Message deleted", messageId: req.params.messageId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to delete message" });
+  }
+});
+
 module.exports = router;
