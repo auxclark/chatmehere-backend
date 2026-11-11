@@ -71,6 +71,14 @@ io.on("connection", (socket) => {
     socket.to(data.roomId).emit("reaction_updated", data.message);
   });
 
+  socket.on("message_deleted", (data) => {
+    socket.to(data.roomId).emit("message_deleted", { messageId: data.messageId });
+  });
+
+  socket.on("message_edited", (data) => {
+    socket.to(data.roomId).emit("message_edited", data.message);
+  });
+
   socket.on("typing", (data) => {
     socket.to(data.roomId).emit("user_typing", data.userId);
   });

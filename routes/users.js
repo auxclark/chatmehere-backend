@@ -97,4 +97,32 @@ router.get("/:id", protect, async (req, res) => {
   }
 });
 
+// PUT /api/users/profile — update current user profile
+router.put("/profile", protect, async (req, res) => {
+  try {
+    const { firstName, lastName, avatar, status } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (firstName && firstName.trim()) user.firstName = firstName.trim();
+    if (lastName && lastName.trim()) user.lastName = lastName.trim();
+    if (avatar && avatar.trim()) user.avatar = avatar.trim();
+    if (status && status.trim()) user.status = status.trim();
+
+    await user.save();
+
+    res.json({
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      avatar: user.avatar,
+      status: user.status,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to update profile" });
+  }
+});
+
 module.exports = router;
